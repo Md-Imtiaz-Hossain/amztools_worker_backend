@@ -1,0 +1,16 @@
+{
+  "name": "amztools_worker_backend",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Product CRUD API with D1 and Swagger Documentation",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "private": true,
+  "dependencies": {
+    "@hono/swagger-ui": "^0.6.1",
+    "hono": "^4.13.7"
+  }
+}

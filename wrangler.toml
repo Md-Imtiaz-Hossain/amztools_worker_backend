@@ -1,0 +1,11 @@
+name = "product-backend"
+main = "index.js"
+compatibility_date = "2026-09-06"
+
+
+[[d1_databases]]
+binding = "DB"
+database_name = "amztools"
+database_id = "aa1f6d2b-e14b-4e20-8d69-e02d2673a478"
+
+
