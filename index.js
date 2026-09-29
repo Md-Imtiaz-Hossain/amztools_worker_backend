@@ -53,7 +53,8 @@ app.get('/', (c) => {
         update: 'PUT /api/products/:id (Auth required)',
         delete: 'DELETE /api/products/:id (Auth required)',
         batchDelete: 'POST /api/products/batch-delete (Auth required)',
-        initTable: 'POST /api/products/init-table'
+        initTable: 'POST /api/products/init-table',
+        seed: 'POST /api/products/seed'
       }
     }
   });

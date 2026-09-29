@@ -32,6 +32,22 @@ productsRouter.post('/init-table', async (c) => {
 });
 
 /**
+ * POST /api/products/seed
+ * Helper to seed initial sample products (useful for local development)
+ */
+productsRouter.post('/seed', async (c) => {
+  try {
+    if (!c.env.DB) {
+      return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
+    }
+    const count = await ProductService.seedProducts(c.env.DB);
+    return c.json({ success: true, message: `Successfully seeded ${count} products`, count });
+  } catch (err) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+/**
  * GET /api/products
  * List products with pagination, sorting, search, and per-column filters
  */

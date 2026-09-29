@@ -1,5 +1,6 @@
 import { ALL_COLUMNS, NUMERIC_COLUMNS, TABLE_NAME } from '../config.js';
 import { SCHEMA_SQL, COLUMN_DEFINITIONS } from '../utils/schema.js';
+import { SEED_PRODUCTS } from '../utils/seedData.js';
 
 export class ProductService {
   /**
@@ -81,30 +82,71 @@ export class ProductService {
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    // Total Count Query
-    const countSql = `SELECT COUNT(*) as total FROM ${TABLE_NAME} ${whereClause};`;
-    const countStmt = db.prepare(countSql);
-    const countResult = bindings.length > 0 ? await countStmt.bind(...bindings).first() : await countStmt.first();
-    const total = countResult ? countResult.total : 0;
-    const totalPages = Math.ceil(total / limit) || 1;
+    try {
+      // Total Count Query
+      const countSql = `SELECT COUNT(*) as total FROM ${TABLE_NAME} ${whereClause};`;
+      const countStmt = db.prepare(countSql);
+      const countResult = bindings.length > 0 ? await countStmt.bind(...bindings).first() : await countStmt.first();
+      let total = countResult ? countResult.total : 0;
 
-    // Data Query
-    const dataSql = `SELECT * FROM ${TABLE_NAME} ${whereClause} ORDER BY ${sortBy} ${sortOrder} LIMIT ? OFFSET ?;`;
-    const dataBindings = [...bindings, limit, offset];
-    const dataStmt = db.prepare(dataSql);
-    const result = await dataStmt.bind(...dataBindings).all();
-
-    return {
-      products: result.results || [],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasPrev: page > 1,
-        hasNext: page < totalPages
+      // If database is completely empty (e.g. fresh local miniflare SQLite), auto-seed initial products
+      if (total === 0 && whereConditions.length === 0) {
+        console.log('Database empty. Auto-seeding initial products...');
+        await this.seedProducts(db);
+        const refetchCount = await countStmt.first();
+        total = refetchCount ? refetchCount.total : 0;
       }
-    };
+
+      const totalPages = Math.ceil(total / limit) || 1;
+
+      // Data Query
+      const dataSql = `SELECT * FROM ${TABLE_NAME} ${whereClause} ORDER BY ${sortBy} ${sortOrder} LIMIT ? OFFSET ?;`;
+      const dataBindings = [...bindings, limit, offset];
+      const dataStmt = db.prepare(dataSql);
+      const result = await dataStmt.bind(...dataBindings).all();
+
+      return {
+        products: result.results || [],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasPrev: page > 1,
+          hasNext: page < totalPages
+        }
+      };
+    } catch (err) {
+      if (err.message && err.message.toLowerCase().includes('no such table')) {
+        console.log('Table wholesale_products not found. Auto-initializing D1 schema...');
+        await this.initTable(db);
+        await this.seedProducts(db);
+
+        const countSql = `SELECT COUNT(*) as total FROM ${TABLE_NAME} ${whereClause};`;
+        const countStmt = db.prepare(countSql);
+        const countResult = bindings.length > 0 ? await countStmt.bind(...bindings).first() : await countStmt.first();
+        const total = countResult ? countResult.total : 0;
+        const totalPages = Math.ceil(total / limit) || 1;
+
+        const dataSql = `SELECT * FROM ${TABLE_NAME} ${whereClause} ORDER BY ${sortBy} ${sortOrder} LIMIT ? OFFSET ?;`;
+        const dataBindings = [...bindings, limit, offset];
+        const dataStmt = db.prepare(dataSql);
+        const result = await dataStmt.bind(...dataBindings).all();
+
+        return {
+          products: result.results || [],
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+            hasPrev: page > 1,
+            hasNext: page < totalPages
+          }
+        };
+      }
+      throw err;
+    }
   }
 
   /**
@@ -233,6 +275,42 @@ export class ProductService {
   }
 
   /**
+   * Seed database with default initial products (useful for local miniflare SQLite and empty D1)
+   */
+  static async seedProducts(db) {
+    if (!SEED_PRODUCTS || SEED_PRODUCTS.length === 0) return 0;
+    let inserted = 0;
+    const allowedFields = ALL_COLUMNS.filter(col => col !== 'id');
+    for (const prod of SEED_PRODUCTS) {
+      try {
+        const fields = [];
+        const placeholders = [];
+        const values = [];
+        for (const f of allowedFields) {
+          if (prod[f] !== undefined) {
+            fields.push(f);
+            placeholders.push('?');
+            let val = prod[f];
+            if (NUMERIC_COLUMNS.includes(f) && val !== null && val !== '') {
+              val = Number(val);
+            }
+            values.push(val);
+          }
+        }
+        if (fields.length > 0) {
+          const sql = `INSERT OR IGNORE INTO ${TABLE_NAME} (${fields.join(', ')}) VALUES (${placeholders.join(', ')});`;
+          await db.prepare(sql).bind(...values).run();
+          inserted++;
+        }
+      } catch (e) {
+        console.warn('Seed product skip:', e.message);
+      }
+    }
+    console.log(`Successfully seeded ${inserted} products into ${TABLE_NAME}`);
+    return inserted;
+  }
+
+  /**
    * Initialize table and indexes if not already initialized
    */
   static async initTable(db) {
@@ -243,6 +321,15 @@ export class ProductService {
 
     if (statements.length > 0) {
       await db.batch(statements);
+    }
+
+    try {
+      const count = await db.prepare(`SELECT COUNT(*) as total FROM ${TABLE_NAME};`).first();
+      if (!count || count.total === 0) {
+        await this.seedProducts(db);
+      }
+    } catch (e) {
+      // Table might just have been created, ignore count errors
     }
     return true;
   }
