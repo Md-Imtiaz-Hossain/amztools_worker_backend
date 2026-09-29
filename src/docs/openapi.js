@@ -175,7 +175,8 @@ export const openApiSpec = {
         description: "Fetch paginated products with multi-column filtering, global search, and sorting.",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
-          { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Items per page (50, 100, 150, etc.)" },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, maximum: 100 }, description: "Items per page (default: 20, max: 100)" },
+          { name: "search", in: "query", schema: { type: "string" }, description: "Filter by product name (title) or description (about_this_item)" },
           { name: "q", in: "query", schema: { type: "string" }, description: "Global search keyword" },
           { name: "sortBy", in: "query", schema: { type: "string", default: "id" }, description: "Sort column name" },
           { name: "sortOrder", in: "query", schema: { type: "string", enum: ["ASC", "DESC"], default: "DESC" }, description: "Sort direction" },
@@ -206,6 +207,7 @@ export const openApiSpec = {
                       properties: {
                         page: { type: "integer" },
                         limit: { type: "integer" },
+                        totalItems: { type: "integer" },
                         total: { type: "integer" },
                         totalPages: { type: "integer" },
                         hasPrev: { type: "boolean" },

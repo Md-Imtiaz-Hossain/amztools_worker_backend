@@ -46,7 +46,7 @@ app.get('/', (c) => {
         verify: 'GET /api/auth/me'
       },
       products: {
-        list: 'GET /api/products (supports ?page=&limit=50,100,150&q=&sortBy=&sortOrder= & col filters)',
+        list: 'GET /api/products (supports ?page=&limit=20-100&search=&sortBy=&sortOrder= & col filters)',
         columns: 'GET /api/products/columns',
         getOne: 'GET /api/products/:id',
         create: 'POST /api/products (Auth required)',

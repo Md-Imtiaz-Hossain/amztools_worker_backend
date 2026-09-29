@@ -49,19 +49,33 @@ productsRouter.post('/seed', async (c) => {
 
 /**
  * GET /api/products
- * List products with pagination, sorting, search, and per-column filters
+ * List products with pagination and keyword search for large-scale data
  */
 productsRouter.get('/', async (c) => {
   try {
     if (!c.env.DB) {
       return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
     }
-    const query = c.req.query();
-    const result = await ProductService.listProducts(c.env.DB, query);
+    const { page, limit, search, ...otherParams } = c.req.query();
+    const result = await ProductService.getAll(c.env.DB, {
+      page,
+      limit,
+      search,
+      ...otherParams
+    });
+
     return c.json({
       success: true,
       data: result.products,
-      pagination: result.pagination
+      pagination: {
+        page: result.pagination.page,
+        limit: result.pagination.limit,
+        totalItems: result.pagination.totalItems,
+        total: result.pagination.totalItems, // backwards compatibility
+        totalPages: result.pagination.totalPages,
+        hasPrev: result.pagination.hasPrev,
+        hasNext: result.pagination.hasNext
+      }
     });
   } catch (err) {
     return c.json({ success: false, error: err.message }, 500);

@@ -11,11 +11,24 @@ export class ProductService {
   }
 
   /**
-   * List products with pagination, sorting, global search, and per-column search/filtering
+   * Get all products with pagination and keyword search for large-scale datasets (10M+ records)
+   *
+   * @param {D1Database} db - D1 Database binding
+   * @param {Object} [queryParams={}] - Query options
+   * @param {number|string} [queryParams.page=1] - Page number (default: 1)
+   * @param {number|string} [queryParams.limit=20] - Page size (default: 20, max: 100)
+   * @param {string} [queryParams.search] - Search keyword filtering by product name (title) or description (about_this_item)
    */
-  static async listProducts(db, queryParams = {}) {
-    const page = Math.max(1, parseInt(queryParams.page) || 1);
-    const limit = Math.max(1, Math.min(500, parseInt(queryParams.limit) || 50));
+  static async getAll(db, queryParams = {}) {
+    const rawPage = parseInt(queryParams.page);
+    const page = !isNaN(rawPage) && rawPage >= 1 ? rawPage : 1;
+
+    const rawLimit = parseInt(queryParams.limit);
+    let limit = 20;
+    if (!isNaN(rawLimit) && rawLimit >= 1) {
+      limit = Math.min(100, rawLimit);
+    }
+
     const offset = (page - 1) * limit;
 
     let sortBy = queryParams.sortBy || 'id';
@@ -31,19 +44,19 @@ export class ProductService {
     const whereConditions = [];
     const bindings = [];
 
-    // Global search (across key product fields)
-    const globalSearch = queryParams.q || queryParams.search;
-    if (globalSearch && typeof globalSearch === 'string' && globalSearch.trim()) {
-      const term = `%${globalSearch.trim()}%`;
-      whereConditions.push(
-        `(asin LIKE ? OR title LIKE ? OR brand LIKE ? OR wholesaler_company_name LIKE ? OR product_id LIKE ? OR category LIKE ?)`
-      );
-      bindings.push(term, term, term, term, term, term);
+    // Keyword search: filter by product name (title) or description (about_this_item) using SQL LIKE
+    const searchTerm = queryParams.search || queryParams.q;
+    if (searchTerm && typeof searchTerm === 'string' && searchTerm.trim()) {
+      const term = `%${searchTerm.trim()}%`;
+      whereConditions.push(`(title LIKE ? OR about_this_item LIKE ?)`);
+      bindings.push(term, term);
     }
 
-    // Per-column search and filtering
+    // Support additional column filters if provided (for fine-grained queries)
     for (const col of ALL_COLUMNS) {
-      // Direct column filter
+      if (['page', 'limit', 'search', 'q', 'sortBy', 'sortOrder'].includes(col)) {
+        continue;
+      }
       if (queryParams[col] !== undefined && queryParams[col] !== null && String(queryParams[col]).trim() !== '') {
         const val = String(queryParams[col]).trim();
         if (NUMERIC_COLUMNS.includes(col)) {
@@ -58,7 +71,6 @@ export class ProductService {
         }
       }
 
-      // Min/Max range filters for numeric columns (e.g. sales_rank_min, profit_max, etc.)
       if (NUMERIC_COLUMNS.includes(col)) {
         const minVal = queryParams[`${col}_min`];
         if (minVal !== undefined && minVal !== null && String(minVal).trim() !== '') {
@@ -83,23 +95,23 @@ export class ProductService {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     try {
-      // Total Count Query
+      // Execute separate COUNT(*) query matching search criteria to return total number of records
       const countSql = `SELECT COUNT(*) as total FROM ${TABLE_NAME} ${whereClause};`;
       const countStmt = db.prepare(countSql);
       const countResult = bindings.length > 0 ? await countStmt.bind(...bindings).first() : await countStmt.first();
-      let total = countResult ? countResult.total : 0;
+      let totalItems = countResult ? countResult.total : 0;
 
       // If database is completely empty (e.g. fresh local miniflare SQLite), auto-seed initial products
-      if (total === 0 && whereConditions.length === 0) {
+      if (totalItems === 0 && whereConditions.length === 0) {
         console.log('Database empty. Auto-seeding initial products...');
         await this.seedProducts(db);
         const refetchCount = await countStmt.first();
-        total = refetchCount ? refetchCount.total : 0;
+        totalItems = refetchCount ? refetchCount.total : 0;
       }
 
-      const totalPages = Math.ceil(total / limit) || 1;
+      const totalPages = Math.ceil(totalItems / limit) || 1;
 
-      // Data Query
+      // Data query with parameterized LIMIT and OFFSET
       const dataSql = `SELECT * FROM ${TABLE_NAME} ${whereClause} ORDER BY ${sortBy} ${sortOrder} LIMIT ? OFFSET ?;`;
       const dataBindings = [...bindings, limit, offset];
       const dataStmt = db.prepare(dataSql);
@@ -110,7 +122,8 @@ export class ProductService {
         pagination: {
           page,
           limit,
-          total,
+          totalItems,
+          total: totalItems,
           totalPages,
           hasPrev: page > 1,
           hasNext: page < totalPages
@@ -125,8 +138,8 @@ export class ProductService {
         const countSql = `SELECT COUNT(*) as total FROM ${TABLE_NAME} ${whereClause};`;
         const countStmt = db.prepare(countSql);
         const countResult = bindings.length > 0 ? await countStmt.bind(...bindings).first() : await countStmt.first();
-        const total = countResult ? countResult.total : 0;
-        const totalPages = Math.ceil(total / limit) || 1;
+        const totalItems = countResult ? countResult.total : 0;
+        const totalPages = Math.ceil(totalItems / limit) || 1;
 
         const dataSql = `SELECT * FROM ${TABLE_NAME} ${whereClause} ORDER BY ${sortBy} ${sortOrder} LIMIT ? OFFSET ?;`;
         const dataBindings = [...bindings, limit, offset];
@@ -138,7 +151,8 @@ export class ProductService {
           pagination: {
             page,
             limit,
-            total,
+            totalItems,
+            total: totalItems,
             totalPages,
             hasPrev: page > 1,
             hasNext: page < totalPages
@@ -147,6 +161,13 @@ export class ProductService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Alias listProducts to getAll for backwards compatibility
+   */
+  static async listProducts(db, queryParams = {}) {
+    return await this.getAll(db, queryParams);
   }
 
   /**
