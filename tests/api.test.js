@@ -181,4 +181,67 @@ describe('AMZ Tools Worker Backend Tests', () => {
     assert.strictEqual(result2.pagination.totalItems, 10000000);
     assert.strictEqual(result2.pagination.totalPages, 100000);
   });
+
+  it('GET /api/products/demo should load all 10 demo products from demo_data.xlsx for frontend testing without saving to DB', async () => {
+    const res = await app.request('/api/products/demo');
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.isDemo, true);
+    assert.strictEqual(body.data.length, 10);
+    assert.strictEqual(body.pagination.totalItems, 10);
+    assert.strictEqual(body.pagination.page, 1);
+
+    // Verify demo item from demo_data.xlsx
+    const first = body.data.find(p => p.asin === 'B0BDHWDR12');
+    assert.ok(first, 'B0BDHWDR12 should be in demo products');
+    assert.strictEqual(first.asin, 'B0BDHWDR12');
+    assert.strictEqual(first.brand, 'Apple');
+    assert.strictEqual(first.wholesaler_company_name, 'ABC LLC');
+    assert.ok(first.title.includes('AirPods Pro'));
+  });
+
+  it('GET /api/products/demo?search=AirPods should filter demo products in memory', async () => {
+    const res = await app.request('/api/products/demo?search=AirPods');
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.data.length, 1);
+    assert.strictEqual(body.data[0].asin, 'B0BDHWDR12');
+  });
+
+  it('POST /api/products/seed should be rejected and not save test data to DB', async () => {
+    const res = await app.request('/api/products/seed', { method: 'POST' });
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.strictEqual(body.success, false);
+    assert.ok(body.message.includes('removed'));
+  });
+
+  it('ProductService.getAll on empty DB should return empty list and NEVER save test data to DB', async () => {
+    let insertCount = 0;
+    const emptyDb = {
+      prepare(sql) {
+        if (sql.includes('INSERT')) {
+          insertCount++;
+        }
+        return {
+          bind() {
+            return {
+              async first() { return { total: 0 }; },
+              async all() { return { results: [] }; }
+            };
+          },
+          async first() { return { total: 0 }; },
+          async all() { return { results: [] }; }
+        };
+      }
+    };
+
+    const { ProductService } = await import('../src/services/productService.js');
+    const result = await ProductService.getAll(emptyDb, {});
+    assert.strictEqual(result.products.length, 0);
+    assert.strictEqual(result.pagination.totalItems, 0);
+    assert.strictEqual(insertCount, 0, 'No INSERT query should ever be executed on empty DB');
+  });
 });

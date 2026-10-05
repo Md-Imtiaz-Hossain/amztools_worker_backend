@@ -54,7 +54,7 @@ app.get('/', (c) => {
         delete: 'DELETE /api/products/:id (Auth required)',
         batchDelete: 'POST /api/products/batch-delete (Auth required)',
         initTable: 'POST /api/products/init-table',
-        seed: 'POST /api/products/seed'
+        demo: 'GET /api/products/demo (Frontend test demo data from demo_data.xlsx)'
       }
     }
   });

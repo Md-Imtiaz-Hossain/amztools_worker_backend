@@ -32,19 +32,34 @@ productsRouter.post('/init-table', async (c) => {
 });
 
 /**
- * POST /api/products/seed
- * Helper to seed initial sample products (useful for local development)
+ * GET /api/products/demo
+ * Returns in-memory demo products parsed from utils/demo_data.xlsx for frontend testing.
+ * NEVER saves or writes test data to the actual database.
  */
-productsRouter.post('/seed', async (c) => {
+productsRouter.get('/demo', async (c) => {
   try {
-    if (!c.env.DB) {
-      return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
-    }
-    const count = await ProductService.seedProducts(c.env.DB);
-    return c.json({ success: true, message: `Successfully seeded ${count} products`, count });
+    const query = c.req.query();
+    const result = await ProductService.getDemo(query);
+    return c.json({
+      success: true,
+      data: result.products,
+      pagination: result.pagination,
+      isDemo: true
+    });
   } catch (err) {
     return c.json({ success: false, error: err.message }, 500);
   }
+});
+
+/**
+ * POST /api/products/seed
+ * (Deprecated) Seed data saving to actual DB has been removed.
+ */
+productsRouter.post('/seed', (c) => {
+  return c.json({
+    success: false,
+    message: 'Saving seed data to database has been removed. Use GET /api/products/demo to test with demo_data.xlsx in-memory.'
+  }, 400);
 });
 
 /**
@@ -53,10 +68,20 @@ productsRouter.post('/seed', async (c) => {
  */
 productsRouter.get('/', async (c) => {
   try {
-    if (!c.env.DB) {
-      return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
+    const query = c.req.query();
+
+    // If demo mode requested or DB is not configured, safely return demo data without touching DB
+    if (query.demo === 'true' || !c.env.DB) {
+      const result = await ProductService.getDemo(query);
+      return c.json({
+        success: true,
+        data: result.products,
+        pagination: result.pagination,
+        isDemo: true
+      });
     }
-    const { page, limit, search, ...otherParams } = c.req.query();
+
+    const { page, limit, search, ...otherParams } = query;
     const result = await ProductService.getAll(c.env.DB, {
       page,
       limit,
