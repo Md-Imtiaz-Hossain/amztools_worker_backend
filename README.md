@@ -92,6 +92,9 @@ npx wrangler deploy
 
 ## REST API for wholesale Amazon product catalog
 
+API: 
+https://amztools-worker-backend.imtiaz15-11790.workers.dev/docs
+
 ![img_4.png](src/assets/img_4.png)
 
 ![img_3.png](src/assets/img_3.png)
