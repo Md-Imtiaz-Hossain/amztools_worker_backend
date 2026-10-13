@@ -89,3 +89,17 @@ node --test tests/api.test.js
 ```bash
 npx wrangler deploy
 ```
+
+## REST API for wholesale Amazon product catalog
+
+![img_4.png](src/assets/img_4.png)
+
+![img_3.png](src/assets/img_3.png)
+
+![img_5.png](src/assets/img_5.png)
+
+![img.png](src/assets/img.png)
+
+![img_1.png](src/assets/img_1.png)
+
+![img_2.png](src/assets/img_2.png)
