@@ -58,31 +58,6 @@ VALUES
     (3, 'Customer User', 'customer@amztools.com', 'customer123', 'customer');
 `;
 
-// In-memory fallback seed users for local/test environments when D1 binding is not provided
-export const SEED_USERS = [
-  {
-    id: 1,
-    full_name: 'Super Admin',
-    email: 'superadmin@amztools.com',
-    password: 'superadmin123',
-    role: ROLES.SUPER_ADMIN
-  },
-  {
-    id: 2,
-    full_name: 'Admin User',
-    email: 'admin@amztools.com',
-    password: 'admin123',
-    role: ROLES.ADMIN
-  },
-  {
-    id: 3,
-    full_name: 'Customer User',
-    email: 'customer@amztools.com',
-    password: 'customer123',
-    role: ROLES.CUSTOMER
-  }
-];
-
 // =============================================================================
 // Role & Permission Helpers
 // =============================================================================
@@ -326,6 +301,74 @@ export async function verifyToken(token, secret) {
 }
 
 // =============================================================================
+// Database Helper & Fallback for Local / Testing Environments
+// =============================================================================
+
+let _fallbackDb = null;
+
+function getFallbackDb() {
+  if (!_fallbackDb) {
+    const memoryStore = [
+      { id: 1, full_name: 'Super Admin', email: 'superadmin@amztools.com', password: 'superadmin123', role: ROLES.SUPER_ADMIN, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 2, full_name: 'Admin User', email: 'admin@amztools.com', password: 'admin123', role: ROLES.ADMIN, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 3, full_name: 'Customer User', email: 'customer@amztools.com', password: 'customer123', role: ROLES.CUSTOMER, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    ];
+
+    _fallbackDb = {
+      prepare(sql) {
+        return {
+          bind(...params) {
+            return {
+              async first() {
+                const lowerSql = sql.toLowerCase();
+                if (lowerSql.includes('select * from user')) {
+                  const idOrEmail = (params[0] || '').toLowerCase();
+                  return memoryStore.find(u => u.email.toLowerCase() === idOrEmail || u.full_name.toLowerCase() === idOrEmail) || null;
+                }
+                if (lowerSql.includes('select id, full_name') && lowerSql.includes('where id =')) {
+                  const id = params[0];
+                  const u = memoryStore.find(u => u.id === id);
+                  if (u) {
+                    const { password: _, ...safe } = u;
+                    return safe;
+                  }
+                  return null;
+                }
+                return null;
+              },
+              async all() {
+                return {
+                  results: memoryStore.map(({ password: _, ...u }) => u)
+                };
+              },
+              async run() {
+                const lowerSql = sql.toLowerCase();
+                if (lowerSql.includes('insert into user')) {
+                  const [full_name, email, password, role] = params;
+                  const newUser = {
+                    id: memoryStore.length + 1,
+                    full_name,
+                    email,
+                    password,
+                    role,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  };
+                  memoryStore.push(newUser);
+                  return { success: true, meta: { changes: 1 } };
+                }
+                return { success: true };
+              }
+            };
+          }
+        };
+      }
+    };
+  }
+  return _fallbackDb;
+}
+
+// =============================================================================
 // User Service
 // =============================================================================
 
@@ -342,12 +385,15 @@ export class UserService {
     return ONE_MONTH_SECONDS;
   }
 
+  static getDb(env) {
+    return (env && env.DB) || getFallbackDb();
+  }
+
   /**
    * Initialize table and seed initial 3 types of users if empty
    */
   static async initTable(db) {
-    if (!db) throw new Error('Database binding is required');
-
+    const database = db || getFallbackDb();
     const statements = [
       USER_SCHEMA_SQL,
       SEED_USERS_SQL
@@ -356,35 +402,37 @@ export class UserService {
       .split(';')
       .map(s => s.trim())
       .filter(s => s.length > 0)
-      .map(s => db.prepare(s));
+      .map(s => database.prepare(s));
 
-    if (statements.length > 0) {
-      await db.batch(statements);
+    if (statements.length > 0 && typeof database.batch === 'function') {
+      await database.batch(statements);
     }
     return true;
-  }
-
-  /**
-   * Find user by email in D1
-   */
-  static async findByEmail(db, email) {
-    if (!db || !email) return null;
-    try {
-      const stmt = db.prepare('SELECT * FROM user WHERE LOWER(email) = LOWER(?) LIMIT 1');
-      return await stmt.bind(email.trim()).first();
-    } catch (e) {
-      return null;
-    }
   }
 
   /**
    * Find user by ID in D1
    */
   static async findById(db, id) {
-    if (!db || !id) return null;
+    const database = db || getFallbackDb();
     try {
-      const stmt = db.prepare('SELECT id, full_name, email, role, created_at, updated_at FROM user WHERE id = ? LIMIT 1');
+      const stmt = database.prepare('SELECT id, full_name, email, role, created_at, updated_at FROM user WHERE id = ? LIMIT 1');
       return await stmt.bind(id).first();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Find user by email or full_name in D1
+   */
+  static async findByEmail(db, identifier) {
+    if (!identifier) return null;
+    const database = db || getFallbackDb();
+    try {
+      const trimmed = identifier.trim();
+      const stmt = database.prepare('SELECT * FROM user WHERE LOWER(email) = LOWER(?) OR LOWER(full_name) = LOWER(?) LIMIT 1');
+      return await stmt.bind(trimmed, trimmed).first();
     } catch (e) {
       return null;
     }
@@ -394,15 +442,13 @@ export class UserService {
    * List all users (excluding password hashes)
    */
   static async getAll(db) {
-    if (!db) {
-      return SEED_USERS.map(({ password, ...u }) => u);
-    }
+    if (!db) return [];
     try {
       const stmt = db.prepare('SELECT id, full_name, email, role, created_at, updated_at FROM user ORDER BY id ASC');
       const res = await stmt.all();
       return (res && res.results) || [];
     } catch (e) {
-      return SEED_USERS.map(({ password, ...u }) => u);
+      return [];
     }
   }
 
@@ -410,6 +456,10 @@ export class UserService {
    * Create a new user in D1
    */
   static async createUser(db, userData) {
+    if (!db) {
+      throw new Error('Database connection is required to create a user');
+    }
+
     const { full_name, email, password, role } = userData;
 
     if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
@@ -427,84 +477,51 @@ export class UserService {
       throw new Error(`Invalid role '${role}'. Role must be one of: ${VALID_ROLES.join(', ')}`);
     }
 
-    // Check if email already exists
-    if (db) {
-      const existing = await this.findByEmail(db, email);
-      if (existing) {
-        const err = new Error(`User with email '${email}' already exists`);
-        err.status = 409;
-        throw err;
-      }
-
-      const hashedPassword = await hashPassword(password);
-      const insertStmt = db.prepare(
-        'INSERT INTO user (full_name, email, password, role) VALUES (?, ?, ?, ?)'
-      );
-      await insertStmt.bind(full_name.trim(), email.trim().toLowerCase(), hashedPassword, normalizedRole).run();
-
-      const created = await this.findByEmail(db, email);
-      if (created) {
-        const { password: _, ...safeUser } = created;
-        return safeUser;
-      }
+    // Check if email already exists in DB
+    const existing = await this.findByEmail(db, email);
+    if (existing) {
+      const err = new Error(`User with email '${email}' already exists`);
+      err.status = 409;
+      throw err;
     }
 
-    // Fallback in-memory representation if DB is not provided
+    const hashedPassword = await hashPassword(password);
+    const insertStmt = db.prepare(
+      'INSERT INTO user (full_name, email, password, role) VALUES (?, ?, ?, ?)'
+    );
+    await insertStmt.bind(full_name.trim(), email.trim().toLowerCase(), hashedPassword, normalizedRole).run();
+
+    const created = await this.findByEmail(db, email);
+    if (created) {
+      const { password: _, ...safeUser } = created;
+      return safeUser;
+    }
+
     return {
-      id: Date.now(),
       full_name: full_name.trim(),
       email: email.trim().toLowerCase(),
-      role: normalizedRole,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      role: normalizedRole
     };
   }
 
   /**
-   * Authenticate user with identifier (email or username) and password
+   * Authenticate user against database credentials
    */
   static async login(identifier, password, env) {
     if (!identifier || !password) {
-      return { success: false, error: 'Email/Username and password are required', status: 400 };
+      return { success: false, error: 'Email and password are required', status: 400 };
     }
 
+    const database = this.getDb(env);
     const trimmedId = String(identifier).trim();
-    let foundUser = null;
-
-    // 1. Check in D1 Database if available
-    if (env && env.DB) {
-      foundUser = await this.findByEmail(env.DB, trimmedId);
-    }
-
-    // 2. Fallback to in-memory seed users or default admin credentials if not found in DB
-    if (!foundUser) {
-      const seedMatch = SEED_USERS.find(
-        u => u.email.toLowerCase() === trimmedId.toLowerCase()
-      );
-      if (seedMatch) {
-        foundUser = seedMatch;
-      } else if (trimmedId.toLowerCase() === 'admin' || trimmedId.toLowerCase() === (env?.ADMIN_USERNAME || 'admin').toLowerCase()) {
-        foundUser = {
-          id: 2,
-          full_name: 'Admin User',
-          email: 'admin@amztools.com',
-          password: env?.ADMIN_PASSWORD || 'password123',
-          role: ROLES.ADMIN
-        };
-      }
-    }
+    const foundUser = await this.findByEmail(database, trimmedId);
 
     if (!foundUser) {
       return { success: false, error: 'Invalid email or password', status: 401 };
     }
 
-    // Verify password (supports hashed, plaintext seed, and legacy password123)
-    let isPasswordValid = await verifyPassword(password, foundUser.password);
-    if (!isPasswordValid && (foundUser.role === ROLES.ADMIN || trimmedId.toLowerCase() === 'admin')) {
-      if (password === 'password123' || password === 'admin123' || password === env?.ADMIN_PASSWORD) {
-        isPasswordValid = true;
-      }
-    }
+    // Verify password against database-stored password (hash or plaintext seed)
+    const isPasswordValid = await verifyPassword(password, foundUser.password);
     if (!isPasswordValid) {
       return { success: false, error: 'Invalid email or password', status: 401 };
     }
@@ -515,14 +532,16 @@ export class UserService {
     const nowSec = Math.floor(Date.now() / 1000);
     const exp = nowSec + sessionExpirySeconds;
 
-    const usernameVal = trimmedId.toLowerCase() === 'admin' ? 'admin' : (foundUser.email || foundUser.full_name);
+    const canWrite = hasWriteAccess(foundUser.role);
+    const canCreate = canCreateUser(foundUser.role);
 
     const payload = {
       id: foundUser.id,
       email: foundUser.email,
       full_name: foundUser.full_name,
       role: foundUser.role,
-      username: usernameVal,
+      canWrite,
+      canCreateUser: canCreate,
       iat: nowSec,
       exp
     };
@@ -539,7 +558,8 @@ export class UserService {
         full_name: foundUser.full_name,
         email: foundUser.email,
         role: foundUser.role,
-        username: usernameVal
+        canWrite,
+        canCreateUser: canCreate
       }
     };
   }
@@ -551,7 +571,17 @@ export class UserService {
     if (!authHeader) return null;
     const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
     const secret = this.getJwtSecret(env);
-    return await verifyToken(token, secret);
+    const payload = await verifyToken(token, secret);
+    if (!payload) return null;
+
+    return {
+      id: payload.id,
+      full_name: payload.full_name,
+      email: payload.email,
+      role: payload.role,
+      canWrite: payload.canWrite !== undefined ? payload.canWrite : hasWriteAccess(payload.role),
+      canCreateUser: payload.canCreateUser !== undefined ? payload.canCreateUser : canCreateUser(payload.role)
+    };
   }
 }
 
@@ -728,7 +758,7 @@ userRouter.get('/me', async (c) => {
  */
 userRouter.get('/', requireAuth, async (c) => {
   try {
-    const users = await UserService.getAll(c.env?.DB);
+    const users = await UserService.getAll(UserService.getDb(c.env));
     return c.json({ success: true, data: users });
   } catch (err) {
     return c.json({ success: false, error: err.message }, 500);
@@ -745,7 +775,7 @@ userRouter.get('/:id', requireAuth, async (c) => {
     if (isNaN(id)) {
       return c.json({ success: false, error: 'Invalid user ID' }, 400);
     }
-    const user = await UserService.findById(c.env?.DB, id);
+    const user = await UserService.findById(UserService.getDb(c.env), id);
     if (!user) {
       return c.json({ success: false, error: 'User not found' }, 404);
     }
@@ -765,7 +795,7 @@ userRouter.get('/:id', requireAuth, async (c) => {
 userRouter.post('/', requireAuth, canCreateUserMiddleware, async (c) => {
   try {
     const body = await c.req.json();
-    const created = await UserService.createUser(c.env?.DB, body);
+    const created = await UserService.createUser(UserService.getDb(c.env), body);
     return c.json({
       success: true,
       message: 'User created successfully',
@@ -782,7 +812,7 @@ userRouter.post('/', requireAuth, canCreateUserMiddleware, async (c) => {
 userRouter.post('/register', requireAuth, canCreateUserMiddleware, async (c) => {
   try {
     const body = await c.req.json();
-    const created = await UserService.createUser(c.env?.DB, body);
+    const created = await UserService.createUser(UserService.getDb(c.env), body);
     return c.json({
       success: true,
       message: 'User created successfully',

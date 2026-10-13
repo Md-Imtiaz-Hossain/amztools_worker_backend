@@ -2,10 +2,8 @@
  * Application Configuration
  */
 
-// Simple hardcoded login credentials as requested ("Username and password will be typed on code")
+// Authentication & Session Configuration
 export const AUTH_CONFIG = {
-  username: "admin",
-  password: "password123",
   jwtSecret: "amztools-super-secret-key-2026-auth",
   sessionExpirySeconds: 30 * 24 * 60 * 60 // 30 days (1 month) = 2,592,000 seconds
 };

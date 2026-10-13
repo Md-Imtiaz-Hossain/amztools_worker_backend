@@ -54,7 +54,7 @@ describe('AMZ Tools Worker Backend Tests', () => {
     const res = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: AUTH_CONFIG.username, password: AUTH_CONFIG.password })
+      body: JSON.stringify({ email: 'admin@amztools.com', password: 'admin123' })
     });
     assert.strictEqual(res.status, 200);
     const body = await res.json();
@@ -69,7 +69,9 @@ describe('AMZ Tools Worker Backend Tests', () => {
     assert.strictEqual(meRes.status, 200);
     const meBody = await meRes.json();
     assert.strictEqual(meBody.success, true);
-    assert.strictEqual(meBody.user.username, AUTH_CONFIG.username);
+    assert.strictEqual(meBody.user.email, 'admin@amztools.com');
+    assert.strictEqual(meBody.user.role, 'admin');
+    assert.strictEqual(meBody.user.canWrite, true);
   });
 
   it('Protected endpoints without token should return 401', async () => {
