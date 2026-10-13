@@ -50,7 +50,7 @@ describe('AMZ Tools Worker Backend Tests', () => {
     assert.strictEqual(body.success, false);
   });
 
-  it('POST /api/auth/login should succeed with valid credentials and return 1-week session token', async () => {
+  it('POST /api/auth/login should succeed with valid credentials and return 1-month session token', async () => {
     const res = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,7 +60,7 @@ describe('AMZ Tools Worker Backend Tests', () => {
     const body = await res.json();
     assert.strictEqual(body.success, true);
     assert.ok(body.token);
-    assert.strictEqual(body.expiresInSeconds, 7 * 24 * 3600);
+    assert.strictEqual(body.expiresInSeconds, 30 * 24 * 3600);
 
     // Verify token with /api/auth/me
     const meRes = await app.request('/api/auth/me', {

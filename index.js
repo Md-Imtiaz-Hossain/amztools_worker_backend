@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authRouter } from './src/routes/auth.js';
+import { userRouter } from './src/modules/user/index.js';
 import { productsRouter } from './src/routes/products.js';
 import { openApiSpec, getSwaggerHtml } from './src/docs/openapi.js';
 
@@ -29,7 +29,8 @@ app.get('/swagger', (c) => {
 });
 
 // Mount modular sub-routers
-app.route('/api/auth', authRouter);
+app.route('/api/auth', userRouter);
+app.route('/api/users', userRouter);
 app.route('/api/products', productsRouter);
 
 // Root route with quick summary & link to Swagger
@@ -41,18 +42,24 @@ app.get('/', (c) => {
     documentation: '/docs',
     endpoints: {
       auth: {
-        login: 'POST /api/auth/login',
+        login: 'POST /api/auth/login (JWT session: 1 month)',
         logout: 'POST /api/auth/logout',
         verify: 'GET /api/auth/me'
+      },
+      users: {
+        list: 'GET /api/users (Auth required)',
+        getOne: 'GET /api/users/:id (Auth required)',
+        create: 'POST /api/users (SuperAdmin only: creates user with role Super admin, admin, customer)',
+        initTable: 'POST /api/users/init-table (Initializes user table & seeds 3 user types)'
       },
       products: {
         list: 'GET /api/products (supports ?page=&limit=20-100&search=&sortBy=&sortOrder= & col filters)',
         columns: 'GET /api/products/columns',
         getOne: 'GET /api/products/:id',
-        create: 'POST /api/products (Auth required)',
-        update: 'PUT /api/products/:id (Auth required)',
-        delete: 'DELETE /api/products/:id (Auth required)',
-        batchDelete: 'POST /api/products/batch-delete (Auth required)',
+        create: 'POST /api/products (Auth required - SuperAdmin & Admin permitted, Customer read-only)',
+        update: 'PUT /api/products/:id (Auth required - SuperAdmin & Admin permitted, Customer read-only)',
+        delete: 'DELETE /api/products/:id (Auth required - SuperAdmin & Admin permitted, Customer read-only)',
+        batchDelete: 'POST /api/products/batch-delete (Auth required - SuperAdmin & Admin permitted, Customer read-only)',
         initTable: 'POST /api/products/init-table',
         demo: 'GET /api/products/demo (Frontend test demo data from demo_data.xlsx)'
       }

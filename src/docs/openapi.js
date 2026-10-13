@@ -39,13 +39,38 @@ export const openApiSpec = {
           success: { type: "boolean", example: true },
           token: { type: "string", example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
           expiresAt: { type: "string", format: "date-time" },
-          expiresInSeconds: { type: "integer", example: 604800 },
+          expiresInSeconds: { type: "integer", example: 2592000, description: "Session valid for 1 month (2,592,000 seconds)" },
           user: {
             type: "object",
             properties: {
-              username: { type: "string", example: "admin" }
+              id: { type: "integer", example: 1 },
+              full_name: { type: "string", example: "Super Admin" },
+              email: { type: "string", example: "superadmin@amztools.com" },
+              role: { type: "string", enum: ["Super admin", "admin", "customer"], example: "Super admin" }
             }
           }
+        }
+      },
+      User: {
+        type: "object",
+        required: ["full_name", "email", "role"],
+        properties: {
+          id: { type: "integer", example: 1 },
+          full_name: { type: "string", example: "Super Admin" },
+          email: { type: "string", format: "email", example: "superadmin@amztools.com" },
+          role: { type: "string", enum: ["Super admin", "admin", "customer"], example: "Super admin" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" }
+        }
+      },
+      CreateUserRequest: {
+        type: "object",
+        required: ["full_name", "email", "password", "role"],
+        properties: {
+          full_name: { type: "string", example: "Jane Doe" },
+          email: { type: "string", format: "email", example: "jane@example.com" },
+          password: { type: "string", format: "password", example: "secure123" },
+          role: { type: "string", enum: ["Super admin", "admin", "customer"], example: "customer" }
         }
       },
       Product: {
@@ -166,6 +191,76 @@ export const openApiSpec = {
         responses: {
           200: { description: "Active session" },
           401: { description: "Invalid or expired token" }
+        }
+      }
+    },
+    "/api/users": {
+      get: {
+        summary: "List Users",
+        description: "Fetch all users (Requires Bearer token). Customer role has read-only access.",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: "List of users",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean" },
+                    data: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/User" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          401: { description: "Unauthorized" }
+        }
+      },
+      post: {
+        summary: "Create User",
+        description: "Create a new user. RBAC Rule: Only SuperAdmin can create new users. Admin is restricted from creating users (403). Customer is read-only (403).",
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateUserRequest" }
+            }
+          }
+        },
+        responses: {
+          201: { description: "User created successfully" },
+          400: { description: "Validation error" },
+          401: { description: "Unauthorized" },
+          403: { description: "Forbidden: Admin or Customer not allowed to create users" },
+          409: { description: "Conflict: Email already exists" }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      get: {
+        summary: "Get User by ID",
+        description: "Retrieve user details by ID (Requires Bearer token).",
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "integer" }, description: "User ID" }
+        ],
+        responses: {
+          200: { description: "User details" },
+          404: { description: "User not found" }
+        }
+      }
+    },
+    "/api/users/init-table": {
+      post: {
+        summary: "Initialize User Table Schema",
+        description: "Executes DDL statements to create user table and seed initial 3 user types (Super admin, admin, customer).",
+        responses: {
+          200: { description: "User table and seed users initialized" }
         }
       }
     },

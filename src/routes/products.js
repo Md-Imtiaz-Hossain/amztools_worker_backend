@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { ProductService } from '../services/productService.js';
-import { requireAuth } from '../services/authService.js';
+import { requireAuth, requireWriteAccess } from '../modules/user/index.js';
 
 export const productsRouter = new Hono();
 
@@ -136,7 +136,7 @@ productsRouter.get('/:id', async (c) => {
  * POST /api/products
  * Create a new product (Protected: Requires Bearer Auth)
  */
-productsRouter.post('/', requireAuth, async (c) => {
+productsRouter.post('/', requireAuth, requireWriteAccess, async (c) => {
   try {
     if (!c.env.DB) {
       return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
@@ -157,7 +157,7 @@ productsRouter.post('/', requireAuth, async (c) => {
  * PUT /api/products/:id
  * Update an existing product (Protected: Requires Bearer Auth)
  */
-productsRouter.put('/:id', requireAuth, async (c) => {
+productsRouter.put('/:id', requireAuth, requireWriteAccess, async (c) => {
   try {
     if (!c.env.DB) {
       return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
@@ -187,7 +187,7 @@ productsRouter.put('/:id', requireAuth, async (c) => {
  * DELETE /api/products/:id
  * Delete a product by ID (Protected: Requires Bearer Auth)
  */
-productsRouter.delete('/:id', requireAuth, async (c) => {
+productsRouter.delete('/:id', requireAuth, requireWriteAccess, async (c) => {
   try {
     if (!c.env.DB) {
       return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);
@@ -212,7 +212,7 @@ productsRouter.delete('/:id', requireAuth, async (c) => {
  * POST /api/products/batch-delete
  * Delete multiple products by IDs (Protected: Requires Bearer Auth)
  */
-productsRouter.post('/batch-delete', requireAuth, async (c) => {
+productsRouter.post('/batch-delete', requireAuth, requireWriteAccess, async (c) => {
   try {
     if (!c.env.DB) {
       return c.json({ success: false, error: 'Database binding env.DB is not configured' }, 500);

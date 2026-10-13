@@ -7,7 +7,7 @@ export const AUTH_CONFIG = {
   username: "admin",
   password: "password123",
   jwtSecret: "amztools-super-secret-key-2026-auth",
-  sessionExpirySeconds: 7 * 24 * 60 * 60 // 7 days (1 week)
+  sessionExpirySeconds: 30 * 24 * 60 * 60 // 30 days (1 month) = 2,592,000 seconds
 };
 
 export const TABLE_NAME = "wholesale_products";
